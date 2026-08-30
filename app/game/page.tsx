@@ -62,6 +62,44 @@ export default function Game() {
   const [layout, setLayout] = useState<"default" | "swapped">("default");
   const [showSettings, setShowSettings] = useState(false);
 
+  // タッチ操作できる端末かどうか(画面幅ではなく、入力方式で判定する)
+  const [isTouch, setIsTouch] = useState(false);
+
+  // 画面に合わせたゲーム表示サイズ(縦横どちらでも収まるように計算)
+  const [displaySize, setDisplaySize] = useState({ width: GAME_WIDTH, height: GAME_HEIGHT });
+
+  useEffect(() => {
+    const mq = window.matchMedia("(pointer: coarse)");
+    setIsTouch(mq.matches);
+    const handleChange = (e: MediaQueryListEvent) => setIsTouch(e.matches);
+    mq.addEventListener("change", handleChange);
+    return () => mq.removeEventListener("change", handleChange);
+  }, []);
+
+  useEffect(() => {
+    function updateSize() {
+      const ratio = GAME_WIDTH / GAME_HEIGHT;
+      const availableW = Math.min(window.innerWidth - 32, 900);
+      // 操作バーやテキストの分を差し引いた、ゲーム画面に使える高さの目安
+      const availableH = window.innerHeight * 0.55;
+
+      let w = availableW;
+      let h = w / ratio;
+      if (h > availableH) {
+        h = availableH;
+        w = h * ratio;
+      }
+      setDisplaySize({ width: Math.round(w), height: Math.round(h) });
+    }
+    updateSize();
+    window.addEventListener("resize", updateSize);
+    window.addEventListener("orientationchange", updateSize);
+    return () => {
+      window.removeEventListener("resize", updateSize);
+      window.removeEventListener("orientationchange", updateSize);
+    };
+  }, []);
+
   // 設定を読み込み(初回のみ)
   useEffect(() => {
     try {
@@ -325,15 +363,14 @@ export default function Game() {
 
   // タッチボタンの共通スタイル
   const touchBtnClass =
-    "select-none touch-none flex items-center justify-center rounded-full bg-white/25 text-white backdrop-blur-sm active:bg-white/40 border border-white/30";
+    "select-none touch-none flex items-center justify-center rounded-full bg-slate-700 text-white active:bg-slate-600 border border-white/20 shadow-lg";
 
-  // レイアウトに応じて、移動クラスターとジャンプボタンをどちらに置くか決める
   const moveOnRight = layout === "default";
 
   const MoveCluster = (
-    <div className="flex items-end gap-3">
+    <div className="flex items-center gap-4">
       <button
-        className={`${touchBtnClass} h-16 w-16 text-2xl`}
+        className={`${touchBtnClass} h-14 w-14 text-xl`}
         onPointerDown={(e) => {
           e.preventDefault();
           pressKey("ArrowLeft");
@@ -345,7 +382,7 @@ export default function Game() {
         ◀
       </button>
       <button
-        className={`${touchBtnClass} h-16 w-16 text-2xl`}
+        className={`${touchBtnClass} h-14 w-14 text-xl`}
         onPointerDown={(e) => {
           e.preventDefault();
           pressKey("ArrowRight");
@@ -361,7 +398,7 @@ export default function Game() {
 
   const JumpButton = (
     <button
-      className={`${touchBtnClass} h-20 w-20 text-sm font-bold`}
+      className={`${touchBtnClass} h-14 w-14 text-xs font-bold`}
       onPointerDown={(e) => {
         e.preventDefault();
         pressKey(" ");
@@ -375,7 +412,7 @@ export default function Game() {
   );
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-800 p-4 sm:p-6">
+    <div className="flex min-h-screen flex-col items-center bg-slate-800 p-4">
       <div className="flex w-full max-w-[900px] items-center justify-between">
         <h1 className="text-lg font-bold text-white sm:text-2xl">
           ミニ・プラットフォーマー
@@ -389,19 +426,26 @@ export default function Game() {
         </button>
       </div>
 
-      <p className="hidden text-sm text-slate-300 sm:block">
-        矢印キー(または A / D)で移動、スペースキー(または W)でジャンプ。敵は上から踏むと倒せます。コインを集めて旗まで到達しよう。
-      </p>
-      <p className="text-center text-xs text-slate-300 sm:hidden">
-        画面下のボタンで操作できます。敵は上から踏むと倒せます。
-      </p>
+      {isTouch ? (
+        <p className="mt-1 text-center text-xs text-slate-300">
+          下のボタンで操作できます。敵は上から踏むと倒せます。
+        </p>
+      ) : (
+        <p className="mt-1 text-sm text-slate-300">
+          矢印キー(または A / D)で移動、スペースキー(または W)でジャンプ。敵は上から踏むと倒せます。コインを集めて旗まで到達しよう。
+        </p>
+      )}
 
-      <div className="relative w-full max-w-[900px] overflow-hidden rounded-xl border-4 border-slate-600 shadow-2xl">
+      <div
+        className="relative mt-4 overflow-hidden rounded-xl border-4 border-slate-600 shadow-2xl"
+        style={{ width: displaySize.width, height: displaySize.height }}
+      >
         <canvas
           ref={canvasRef}
           width={GAME_WIDTH}
           height={GAME_HEIGHT}
-          className="block h-auto w-full bg-white"
+          style={{ width: displaySize.width, height: displaySize.height }}
+          className="block bg-white"
         />
 
         <div className="absolute left-3 top-3 flex items-center gap-3 rounded-full bg-black/50 px-3 py-1 text-xs font-medium text-white sm:text-sm">
@@ -410,7 +454,7 @@ export default function Game() {
         </div>
 
         {status === "cleared" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/70 px-4 text-center">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70 px-4 text-center">
             <p className="text-3xl font-bold text-yellow-300">🎉 CLEAR!</p>
             <p className="text-white">
               コイン獲得数: {coinCount} / {initialCoins.length}
@@ -424,14 +468,16 @@ export default function Game() {
             >
               もう一度プレイ
             </button>
-            <p className="hidden text-xs text-slate-300 sm:block">
-              (Enter または スペースキーでもリスタートできます)
-            </p>
+            {!isTouch && (
+              <p className="text-xs text-slate-300">
+                (Enter または スペースキーでもリスタートできます)
+              </p>
+            )}
           </div>
         )}
 
         {status === "gameover" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/70">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70">
             <p className="text-3xl font-bold text-red-400">GAME OVER</p>
             <button
               onClick={handleRestart}
@@ -439,22 +485,25 @@ export default function Game() {
             >
               もう一度プレイ
             </button>
-            <p className="hidden text-xs text-slate-300 sm:block">
-              (Enter または スペースキーでもリスタートできます)
-            </p>
+            {!isTouch && (
+              <p className="text-xs text-slate-300">
+                (Enter または スペースキーでもリスタートできます)
+              </p>
+            )}
           </div>
         )}
-
-        {/* スマホ用タッチ操作(PC幅では非表示) */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between p-4 sm:hidden">
-          <div className="pointer-events-auto">
-            {moveOnRight ? JumpButton : MoveCluster}
-          </div>
-          <div className="pointer-events-auto">
-            {moveOnRight ? MoveCluster : JumpButton}
-          </div>
-        </div>
       </div>
+
+      {/* スマホ用タッチ操作バー(ゲーム画面の"下"に独立して配置、キャラと重ならない) */}
+      {isTouch && (
+        <div
+          className="mt-4 flex items-center justify-between px-2"
+          style={{ width: displaySize.width }}
+        >
+          <div>{moveOnRight ? JumpButton : MoveCluster}</div>
+          <div>{moveOnRight ? MoveCluster : JumpButton}</div>
+        </div>
+      )}
 
       {/* 設定モーダル */}
       {showSettings && (
@@ -485,7 +534,7 @@ export default function Game() {
               >
                 <div>
                   <p className="font-medium">デフォルト</p>
-                  <p className="text-xs text-slate-400">右下:移動 / 左下:ジャンプ</p>
+                  <p className="text-xs text-slate-400">右:移動 / 左:ジャンプ</p>
                 </div>
                 <input
                   type="radio"
@@ -504,7 +553,7 @@ export default function Game() {
               >
                 <div>
                   <p className="font-medium">入れ替え</p>
-                  <p className="text-xs text-slate-400">左下:移動 / 右下:ジャンプ</p>
+                  <p className="text-xs text-slate-400">左:移動 / 右:ジャンプ</p>
                 </div>
                 <input
                   type="radio"
