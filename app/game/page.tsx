@@ -8,6 +8,7 @@ const STOMP_BOUNCE = -8;
 const MOVE_SPEED = 4;
 const GAME_WIDTH = 900;
 const GAME_HEIGHT = 500;
+const LAYOUT_STORAGE_KEY = "mini-platformer-layout";
 
 type Platform = { x: number; y: number; w: number; h: number };
 type Coin = { x: number; y: number; r: number; collected: boolean };
@@ -57,6 +58,31 @@ export default function Game() {
   const [defeatedCount, setDefeatedCount] = useState(0);
   const [resetKey, setResetKey] = useState(0);
 
+  // "default" = 右:移動 / 左:ジャンプ、 "swapped" = 左:移動 / 右:ジャンプ
+  const [layout, setLayout] = useState<"default" | "swapped">("default");
+  const [showSettings, setShowSettings] = useState(false);
+
+  // 設定を読み込み(初回のみ)
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(LAYOUT_STORAGE_KEY);
+      if (saved === "default" || saved === "swapped") {
+        setLayout(saved);
+      }
+    } catch {
+      // localStorageが使えない環境では無視
+    }
+  }, []);
+
+  const changeLayout = (value: "default" | "swapped") => {
+    setLayout(value);
+    try {
+      window.localStorage.setItem(LAYOUT_STORAGE_KEY, value);
+    } catch {
+      // 保存に失敗しても致命的ではないので無視
+    }
+  };
+
   const handleRestart = () => {
     setStatus("playing");
     setCoinCount(0);
@@ -64,6 +90,15 @@ export default function Game() {
     setResetKey((k) => k + 1);
   };
 
+  // タッチ操作用のキー押下シミュレーション
+  const pressKey = (key: string) => {
+    keysRef.current[key] = true;
+  };
+  const releaseKey = (key: string) => {
+    keysRef.current[key] = false;
+  };
+
+  // ゲームループ本体
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -273,6 +308,7 @@ export default function Game() {
     };
   }, [resetKey]);
 
+  // クリア・ゲームオーバー時のキーボードリスタート対応
   useEffect(() => {
     function handleRestartKey(e: KeyboardEvent) {
       if (
@@ -287,28 +323,94 @@ export default function Game() {
     return () => window.removeEventListener("keydown", handleRestartKey);
   }, [status]);
 
+  // タッチボタンの共通スタイル
+  const touchBtnClass =
+    "select-none touch-none flex items-center justify-center rounded-full bg-white/25 text-white backdrop-blur-sm active:bg-white/40 border border-white/30";
+
+  // レイアウトに応じて、移動クラスターとジャンプボタンをどちらに置くか決める
+  const moveOnRight = layout === "default";
+
+  const MoveCluster = (
+    <div className="flex items-end gap-3">
+      <button
+        className={`${touchBtnClass} h-16 w-16 text-2xl`}
+        onPointerDown={(e) => {
+          e.preventDefault();
+          pressKey("ArrowLeft");
+        }}
+        onPointerUp={() => releaseKey("ArrowLeft")}
+        onPointerLeave={() => releaseKey("ArrowLeft")}
+        onPointerCancel={() => releaseKey("ArrowLeft")}
+      >
+        ◀
+      </button>
+      <button
+        className={`${touchBtnClass} h-16 w-16 text-2xl`}
+        onPointerDown={(e) => {
+          e.preventDefault();
+          pressKey("ArrowRight");
+        }}
+        onPointerUp={() => releaseKey("ArrowRight")}
+        onPointerLeave={() => releaseKey("ArrowRight")}
+        onPointerCancel={() => releaseKey("ArrowRight")}
+      >
+        ▶
+      </button>
+    </div>
+  );
+
+  const JumpButton = (
+    <button
+      className={`${touchBtnClass} h-20 w-20 text-sm font-bold`}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        pressKey(" ");
+      }}
+      onPointerUp={() => releaseKey(" ")}
+      onPointerLeave={() => releaseKey(" ")}
+      onPointerCancel={() => releaseKey(" ")}
+    >
+      JUMP
+    </button>
+  );
+
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-800 p-6">
-      <h1 className="text-2xl font-bold text-white">ミニ・プラットフォーマー</h1>
-      <p className="text-sm text-slate-300">
+    <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-800 p-4 sm:p-6">
+      <div className="flex w-full max-w-[900px] items-center justify-between">
+        <h1 className="text-lg font-bold text-white sm:text-2xl">
+          ミニ・プラットフォーマー
+        </h1>
+        <button
+          onClick={() => setShowSettings(true)}
+          className="rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
+          aria-label="設定"
+        >
+          ⚙️
+        </button>
+      </div>
+
+      <p className="hidden text-sm text-slate-300 sm:block">
         矢印キー(または A / D)で移動、スペースキー(または W)でジャンプ。敵は上から踏むと倒せます。コインを集めて旗まで到達しよう。
       </p>
+      <p className="text-center text-xs text-slate-300 sm:hidden">
+        画面下のボタンで操作できます。敵は上から踏むと倒せます。
+      </p>
 
-      <div className="relative overflow-hidden rounded-xl border-4 border-slate-600 shadow-2xl">
+      <div className="relative w-full max-w-[900px] overflow-hidden rounded-xl border-4 border-slate-600 shadow-2xl">
         <canvas
           ref={canvasRef}
           width={GAME_WIDTH}
           height={GAME_HEIGHT}
-          className="block bg-white"
+          className="block h-auto w-full bg-white"
         />
 
-        <div className="absolute left-3 top-3 flex items-center gap-3 rounded-full bg-black/50 px-3 py-1 text-sm font-medium text-white">
+        <div className="absolute left-3 top-3 flex items-center gap-3 rounded-full bg-black/50 px-3 py-1 text-xs font-medium text-white sm:text-sm">
           <span>🪙 {coinCount} / {initialCoins.length}</span>
           <span>👾 {defeatedCount} / {initialEnemies.length}</span>
         </div>
 
         {status === "cleared" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/70">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/70 px-4 text-center">
             <p className="text-3xl font-bold text-yellow-300">🎉 CLEAR!</p>
             <p className="text-white">
               コイン獲得数: {coinCount} / {initialCoins.length}
@@ -322,7 +424,7 @@ export default function Game() {
             >
               もう一度プレイ
             </button>
-            <p className="text-xs text-slate-300">
+            <p className="hidden text-xs text-slate-300 sm:block">
               (Enter または スペースキーでもリスタートできます)
             </p>
           </div>
@@ -337,12 +439,91 @@ export default function Game() {
             >
               もう一度プレイ
             </button>
-            <p className="text-xs text-slate-300">
+            <p className="hidden text-xs text-slate-300 sm:block">
               (Enter または スペースキーでもリスタートできます)
             </p>
           </div>
         )}
+
+        {/* スマホ用タッチ操作(PC幅では非表示) */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between p-4 sm:hidden">
+          <div className="pointer-events-auto">
+            {moveOnRight ? JumpButton : MoveCluster}
+          </div>
+          <div className="pointer-events-auto">
+            {moveOnRight ? MoveCluster : JumpButton}
+          </div>
+        </div>
       </div>
+
+      {/* 設定モーダル */}
+      {showSettings && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-slate-900 p-5 text-white shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-bold">操作設定</h2>
+              <button
+                onClick={() => setShowSettings(false)}
+                className="text-slate-400 hover:text-white"
+                aria-label="閉じる"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="mb-3 text-sm text-slate-300">
+              スマートフォンでのボタン配置を選べます。
+            </p>
+
+            <div className="flex flex-col gap-3">
+              <label
+                className={`flex cursor-pointer items-center justify-between rounded-xl border px-4 py-3 ${
+                  layout === "default"
+                    ? "border-purple-400 bg-purple-500/20"
+                    : "border-white/10 bg-white/5"
+                }`}
+              >
+                <div>
+                  <p className="font-medium">デフォルト</p>
+                  <p className="text-xs text-slate-400">右下:移動 / 左下:ジャンプ</p>
+                </div>
+                <input
+                  type="radio"
+                  name="layout"
+                  checked={layout === "default"}
+                  onChange={() => changeLayout("default")}
+                />
+              </label>
+
+              <label
+                className={`flex cursor-pointer items-center justify-between rounded-xl border px-4 py-3 ${
+                  layout === "swapped"
+                    ? "border-purple-400 bg-purple-500/20"
+                    : "border-white/10 bg-white/5"
+                }`}
+              >
+                <div>
+                  <p className="font-medium">入れ替え</p>
+                  <p className="text-xs text-slate-400">左下:移動 / 右下:ジャンプ</p>
+                </div>
+                <input
+                  type="radio"
+                  name="layout"
+                  checked={layout === "swapped"}
+                  onChange={() => changeLayout("swapped")}
+                />
+              </label>
+            </div>
+
+            <button
+              onClick={() => setShowSettings(false)}
+              className="mt-5 w-full rounded-full bg-white px-4 py-2 font-medium text-slate-900 hover:bg-slate-200"
+            >
+              閉じる
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
