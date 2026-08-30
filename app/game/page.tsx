@@ -13,49 +13,65 @@ const CANVAS_TOTAL_HEIGHT = GAME_HEIGHT + CONTROL_ZONE_HEIGHT;
 const LAYOUT_STORAGE_KEY = "mini-platformer-layout";
 
 type Platform = { x: number; y: number; w: number; h: number };
-type Coin = { x: number; y: number; r: number; collected: boolean };
-type Enemy = {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  dir: number;
-  range: [number, number];
-  alive: boolean;
+type CoinDef = { x: number; y: number; r: number };
+type EnemyDef = { x: number; y: number; w: number; h: number; dir: number; range: [number, number] };
+
+// 実行時に使う型(クリア済み・生存フラグつき)
+type Coin = CoinDef & { collected: boolean };
+type Enemy = EnemyDef & { alive: boolean };
+
+// ==== ステージ定義 ====
+// 新しいステージを追加するときは、この配列に要素を1つ足すだけでOK。
+type Stage = {
+  name: string;
+  startX: number;
+  startY: number;
+  platforms: Platform[];
+  coins: CoinDef[];
+  enemies: EnemyDef[];
+  goalX: number;
+  goalY: number;
 };
 
-const platforms: Platform[] = [
-  { x: 0, y: 460, w: 300, h: 40 },
-  { x: 380, y: 460, w: 200, h: 40 },
-  { x: 620, y: 380, w: 150, h: 20 },
-  { x: 820, y: 460, w: 400, h: 40 },
-  { x: 1300, y: 400, w: 150, h: 20 },
-  { x: 1550, y: 460, w: 300, h: 40 },
-  { x: 1950, y: 350, w: 200, h: 20 },
-  { x: 2250, y: 460, w: 400, h: 40 },
+const stages: Stage[] = [
+  {
+    name: "ステージ1",
+    startX: 50,
+    startY: 400,
+    platforms: [
+      { x: 0, y: 460, w: 300, h: 40 },
+      { x: 380, y: 460, w: 200, h: 40 },
+      { x: 620, y: 380, w: 150, h: 20 },
+      { x: 820, y: 460, w: 400, h: 40 },
+      { x: 1300, y: 400, w: 150, h: 20 },
+      { x: 1550, y: 460, w: 300, h: 40 },
+      { x: 1950, y: 350, w: 200, h: 20 },
+      { x: 2250, y: 460, w: 400, h: 40 },
+    ],
+    coins: [
+      { x: 450, y: 420, r: 10 },
+      { x: 650, y: 340, r: 10 },
+      { x: 900, y: 420, r: 10 },
+      { x: 1350, y: 360, r: 10 },
+      { x: 1650, y: 420, r: 10 },
+      { x: 2000, y: 310, r: 10 },
+    ],
+    enemies: [
+      { x: 850, y: 420, w: 30, h: 30, dir: 1, range: [820, 1180] },
+      { x: 1600, y: 420, w: 30, h: 30, dir: 1, range: [1550, 1800] },
+    ],
+    goalX: 2550,
+    goalY: 380,
+  },
+  // 今後ここに { name: "ステージ2", ... } のように追加していく
 ];
-
-const initialCoins: Coin[] = [
-  { x: 450, y: 420, r: 10, collected: false },
-  { x: 650, y: 340, r: 10, collected: false },
-  { x: 900, y: 420, r: 10, collected: false },
-  { x: 1350, y: 360, r: 10, collected: false },
-  { x: 1650, y: 420, r: 10, collected: false },
-  { x: 2000, y: 310, r: 10, collected: false },
-];
-
-const initialEnemies: Enemy[] = [
-  { x: 850, y: 420, w: 30, h: 30, dir: 1, range: [820, 1180], alive: true },
-  { x: 1600, y: 420, w: 30, h: 30, dir: 1, range: [1550, 1800], alive: true },
-];
-
-const GOAL_X = 2550;
-const GOAL_Y = 380;
 
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const keysRef = useRef<{ [key: string]: boolean }>({});
-  const [status, setStatus] = useState<"playing" | "cleared" | "gameover">("playing");
+
+  const [stageIndex, setStageIndex] = useState(0);
+  const [status, setStatus] = useState<"playing" | "stagecleared" | "allcleared" | "gameover">("playing");
   const [coinCount, setCoinCount] = useState(0);
   const [defeatedCount, setDefeatedCount] = useState(0);
   const [resetKey, setResetKey] = useState(0);
@@ -65,6 +81,9 @@ export default function Game() {
   const [isTouch, setIsTouch] = useState(false);
   const [displaySize, setDisplaySize] = useState({ width: GAME_WIDTH, height: CANVAS_TOTAL_HEIGHT });
   const [isLandscape, setIsLandscape] = useState(false);
+
+  const currentStage = stages[stageIndex];
+  const isLastStage = stageIndex === stages.length - 1;
 
   useEffect(() => {
     const mq = window.matchMedia("(pointer: coarse)");
@@ -79,7 +98,7 @@ export default function Game() {
       const ratio = GAME_WIDTH / CANVAS_TOTAL_HEIGHT;
       const landscape = window.innerWidth > window.innerHeight;
       setIsLandscape(landscape);
-      // 横画面ではタイトル・説明文を省スペース表示にするので、その分の余白を少なくできる
+
       const headerReserve = landscape ? 50 : 170;
       const availableW = Math.min(window.innerWidth - 16, 1300);
       const availableH = Math.max(180, window.innerHeight - headerReserve);
@@ -108,7 +127,7 @@ export default function Game() {
         setLayout(saved);
       }
     } catch {
-      // localStorageが使えない環境では無視
+      // 無視
     }
   }, []);
 
@@ -121,7 +140,26 @@ export default function Game() {
     }
   };
 
+  // 今のステージをもう一度プレイ
   const handleRestart = () => {
+    setStatus("playing");
+    setCoinCount(0);
+    setDefeatedCount(0);
+    setResetKey((k) => k + 1);
+  };
+
+  // 次のステージへ進む
+  const handleNextStage = () => {
+    setStageIndex((i) => Math.min(i + 1, stages.length - 1));
+    setStatus("playing");
+    setCoinCount(0);
+    setDefeatedCount(0);
+    setResetKey((k) => k + 1);
+  };
+
+  // 最初からやり直す(全クリア後など)
+  const handleRestartFromBeginning = () => {
+    setStageIndex(0);
     setStatus("playing");
     setCoinCount(0);
     setDefeatedCount(0);
@@ -135,16 +173,18 @@ export default function Game() {
     keysRef.current[key] = false;
   };
 
-  // ゲームループ本体
+  // ゲームループ本体(ステージが変わるたびに作り直す)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    const stage = stages[stageIndex];
+
     const player = {
-      x: 50,
-      y: 400,
+      x: stage.startX,
+      y: stage.startY,
       w: 30,
       h: 30,
       vx: 0,
@@ -152,13 +192,16 @@ export default function Game() {
       onGround: false,
     };
 
-    const coins: Coin[] = initialCoins.map((c) => ({ ...c }));
-    const enemies: Enemy[] = initialEnemies.map((e) => ({ ...e }));
+    const coins: Coin[] = stage.coins.map((c) => ({ ...c, collected: false }));
+    const enemies: Enemy[] = stage.enemies.map((e) => ({ ...e, alive: true }));
+    const platforms = stage.platforms;
+    const GOAL_X = stage.goalX;
+    const GOAL_Y = stage.goalY;
 
     let cameraX = 0;
     let collected = 0;
     let defeated = 0;
-    let currentStatus: "playing" | "cleared" | "gameover" = "playing";
+    let currentStatus: "playing" | "stagecleared" | "allcleared" | "gameover" = "playing";
     let animationId: number;
 
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -264,8 +307,9 @@ export default function Game() {
       if (
         checkAABB(player.x, player.y, player.w, player.h, GOAL_X, GOAL_Y, 30, 80)
       ) {
-        currentStatus = "cleared";
-        setStatus("cleared");
+        const lastStage = stageIndex === stages.length - 1;
+        currentStatus = lastStage ? "allcleared" : "stagecleared";
+        setStatus(currentStatus);
       }
 
       cameraX = player.x - 200;
@@ -275,11 +319,9 @@ export default function Game() {
     function draw() {
       if (!ctx) return;
 
-      // 全体の下地(操作エリア部分の色)
       ctx.fillStyle = "#334155";
       ctx.fillRect(0, 0, GAME_WIDTH, CANVAS_TOTAL_HEIGHT);
 
-      // プレイフィールドの空
       const gradient = ctx.createLinearGradient(0, 0, 0, GAME_HEIGHT);
       gradient.addColorStop(0, "#87ceeb");
       gradient.addColorStop(1, "#e0f7fa");
@@ -336,7 +378,6 @@ export default function Game() {
 
       ctx.restore();
 
-      // プレイフィールドと操作エリアの境界線
       ctx.fillStyle = "#1e293b";
       ctx.fillRect(0, GAME_HEIGHT, GAME_WIDTH, 4);
     }
@@ -353,23 +394,27 @@ export default function Game() {
       window.removeEventListener("keyup", handleKeyUp);
       cancelAnimationFrame(animationId);
     };
-  }, [resetKey]);
+  }, [resetKey, stageIndex]);
 
+  // クリア・ゲームオーバー時のキーボード操作対応
   useEffect(() => {
-    function handleRestartKey(e: KeyboardEvent) {
-      if (
-        (status === "cleared" || status === "gameover") &&
-        (e.key === "Enter" || e.key === " ")
-      ) {
+    function handleActionKey(e: KeyboardEvent) {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      if (status === "gameover") {
         e.preventDefault();
         handleRestart();
+      } else if (status === "stagecleared") {
+        e.preventDefault();
+        handleNextStage();
+      } else if (status === "allcleared") {
+        e.preventDefault();
+        handleRestartFromBeginning();
       }
     }
-    window.addEventListener("keydown", handleRestartKey);
-    return () => window.removeEventListener("keydown", handleRestartKey);
+    window.addEventListener("keydown", handleActionKey);
+    return () => window.removeEventListener("keydown", handleActionKey);
   }, [status]);
 
-  // 長押しメニュー(コピー/ペースト等)を極力出さないための共通設定
   const noCalloutStyle: React.CSSProperties = {
     WebkitUserSelect: "none",
     WebkitTouchCallout: "none",
@@ -435,6 +480,8 @@ export default function Game() {
   const controlZoneDisplayHeight =
     displaySize.height * (CONTROL_ZONE_HEIGHT / CANVAS_TOTAL_HEIGHT);
 
+  const overlayHeight = displaySize.height - controlZoneDisplayHeight;
+
   return (
     <div className="flex min-h-screen flex-col items-center bg-slate-800 p-4">
       <div className="flex w-full max-w-[1100px] items-center justify-between">
@@ -443,7 +490,7 @@ export default function Game() {
             isTouch && isLandscape ? "text-sm" : "text-lg sm:text-2xl"
           }`}
         >
-          ミニ・プラットフォーマー
+          ミニ・プラットフォーマー ({currentStage.name})
         </h1>
         <button
           onClick={() => setShowSettings(true)}
@@ -481,31 +528,52 @@ export default function Game() {
         />
 
         <div className="absolute left-3 top-3 flex items-center gap-3 rounded-full bg-black/50 px-3 py-1 text-xs font-medium text-white sm:text-sm">
-          <span>🪙 {coinCount} / {initialCoins.length}</span>
-          <span>👾 {defeatedCount} / {initialEnemies.length}</span>
+          <span>🪙 {coinCount} / {currentStage.coins.length}</span>
+          <span>👾 {defeatedCount} / {currentStage.enemies.length}</span>
         </div>
 
-        {status === "cleared" && (
+        {status === "stagecleared" && (
           <div
             className="absolute inset-x-0 top-0 flex flex-col items-center justify-center gap-3 bg-black/70 px-4 text-center"
-            style={{ height: displaySize.height - controlZoneDisplayHeight }}
+            style={{ height: overlayHeight }}
           >
-            <p className="text-3xl font-bold text-yellow-300">🎉 CLEAR!</p>
+            <p className="text-3xl font-bold text-yellow-300">🎉 STAGE CLEAR!</p>
             <p className="text-white">
-              コイン獲得数: {coinCount} / {initialCoins.length}
+              コイン獲得数: {coinCount} / {currentStage.coins.length}
             </p>
             <p className="text-white">
-              倒した敵: {defeatedCount} / {initialEnemies.length}
+              倒した敵: {defeatedCount} / {currentStage.enemies.length}
             </p>
             <button
-              onClick={handleRestart}
+              onClick={handleNextStage}
               className="rounded-full bg-white px-6 py-2 font-medium text-slate-900 hover:bg-slate-200"
             >
-              もう一度プレイ
+              次のステージへ
             </button>
             {!isTouch && (
               <p className="text-xs text-slate-300">
-                (Enter または スペースキーでもリスタートできます)
+                (Enter または スペースキーでも次に進めます)
+              </p>
+            )}
+          </div>
+        )}
+
+        {status === "allcleared" && (
+          <div
+            className="absolute inset-x-0 top-0 flex flex-col items-center justify-center gap-3 bg-black/70 px-4 text-center"
+            style={{ height: overlayHeight }}
+          >
+            <p className="text-3xl font-bold text-yellow-300">🏆 ALL CLEAR!</p>
+            <p className="text-white">全ステージクリアおめでとう!</p>
+            <button
+              onClick={handleRestartFromBeginning}
+              className="rounded-full bg-white px-6 py-2 font-medium text-slate-900 hover:bg-slate-200"
+            >
+              最初からもう一度
+            </button>
+            {!isTouch && (
+              <p className="text-xs text-slate-300">
+                (Enter または スペースキーでも最初からになります)
               </p>
             )}
           </div>
@@ -514,7 +582,7 @@ export default function Game() {
         {status === "gameover" && (
           <div
             className="absolute inset-x-0 top-0 flex flex-col items-center justify-center gap-3 bg-black/70"
-            style={{ height: displaySize.height - controlZoneDisplayHeight }}
+            style={{ height: overlayHeight }}
           >
             <p className="text-3xl font-bold text-red-400">GAME OVER</p>
             <button
@@ -531,7 +599,6 @@ export default function Game() {
           </div>
         )}
 
-        {/* 操作エリア(キャンバス下部、プレイフィールドとは完全に別のゾーン) */}
         {isTouch && (
           <div
             className="absolute inset-x-0 bottom-0 flex items-center justify-between px-4"
