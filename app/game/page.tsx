@@ -8,7 +8,7 @@ const STOMP_BOUNCE = -8;
 const MOVE_SPEED = 4;
 const GAME_WIDTH = 900;
 const GAME_HEIGHT = 500; // プレイフィールドの高さ
-const CONTROL_ZONE_HEIGHT = 110; // 操作ボタン専用エリアの高さ(プレイフィールドの外)
+const CONTROL_ZONE_HEIGHT = 90; // 操作ボタン専用エリアの高さ(プレイフィールドの外)
 const CANVAS_TOTAL_HEIGHT = GAME_HEIGHT + CONTROL_ZONE_HEIGHT;
 const LAYOUT_STORAGE_KEY = "mini-platformer-layout";
 
@@ -64,6 +64,7 @@ export default function Game() {
   const [showSettings, setShowSettings] = useState(false);
   const [isTouch, setIsTouch] = useState(false);
   const [displaySize, setDisplaySize] = useState({ width: GAME_WIDTH, height: CANVAS_TOTAL_HEIGHT });
+  const [isLandscape, setIsLandscape] = useState(false);
 
   useEffect(() => {
     const mq = window.matchMedia("(pointer: coarse)");
@@ -76,9 +77,12 @@ export default function Game() {
   useEffect(() => {
     function updateSize() {
       const ratio = GAME_WIDTH / CANVAS_TOTAL_HEIGHT;
-      const headerReserve = 170; // タイトル・説明文・余白のおおよその高さ
-      const availableW = Math.min(window.innerWidth - 16, 1100);
-      const availableH = Math.max(220, window.innerHeight - headerReserve);
+      const landscape = window.innerWidth > window.innerHeight;
+      setIsLandscape(landscape);
+      // 横画面ではタイトル・説明文を省スペース表示にするので、その分の余白を少なくできる
+      const headerReserve = landscape ? 50 : 170;
+      const availableW = Math.min(window.innerWidth - 16, 1300);
+      const availableH = Math.max(180, window.innerHeight - headerReserve);
 
       let w = availableW;
       let h = w / ratio;
@@ -379,10 +383,10 @@ export default function Game() {
   const moveOnRight = layout === "default";
 
   const MoveCluster = (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-2">
       <button
         style={noCalloutStyle}
-        className={`${touchBtnClass} h-14 w-14 text-xl`}
+        className={`${touchBtnClass} h-11 w-11 text-base`}
         onPointerDown={(e) => {
           e.preventDefault();
           pressKey("ArrowLeft");
@@ -396,7 +400,7 @@ export default function Game() {
       </button>
       <button
         style={noCalloutStyle}
-        className={`${touchBtnClass} h-14 w-14 text-xl`}
+        className={`${touchBtnClass} h-11 w-11 text-base`}
         onPointerDown={(e) => {
           e.preventDefault();
           pressKey("ArrowRight");
@@ -414,7 +418,7 @@ export default function Game() {
   const JumpButton = (
     <button
       style={noCalloutStyle}
-      className={`${touchBtnClass} h-16 w-16 text-xs font-bold`}
+      className={`${touchBtnClass} h-12 w-12 text-[10px] font-bold`}
       onPointerDown={(e) => {
         e.preventDefault();
         pressKey(" ");
@@ -434,7 +438,11 @@ export default function Game() {
   return (
     <div className="flex min-h-screen flex-col items-center bg-slate-800 p-4">
       <div className="flex w-full max-w-[1100px] items-center justify-between">
-        <h1 className="text-lg font-bold text-white sm:text-2xl">
+        <h1
+          className={`font-bold text-white ${
+            isTouch && isLandscape ? "text-sm" : "text-lg sm:text-2xl"
+          }`}
+        >
           ミニ・プラットフォーマー
         </h1>
         <button
@@ -447,9 +455,11 @@ export default function Game() {
       </div>
 
       {isTouch ? (
-        <p className="mt-1 text-center text-xs text-slate-300">
-          画面下のボタンで操作できます。敵は上から踏むと倒せます。
-        </p>
+        !isLandscape && (
+          <p className="mt-1 text-center text-xs text-slate-300">
+            画面下のボタンで操作できます。敵は上から踏むと倒せます。
+          </p>
+        )
       ) : (
         <p className="mt-1 text-sm text-slate-300">
           矢印キー(または A / D)で移動、スペースキー(または W)でジャンプ。敵は上から踏むと倒せます。コインを集めて旗まで到達しよう。
@@ -457,7 +467,9 @@ export default function Game() {
       )}
 
       <div
-        className="relative mt-4 overflow-hidden rounded-xl border-4 border-slate-600 shadow-2xl"
+        className={`relative overflow-hidden rounded-xl border-4 border-slate-600 shadow-2xl ${
+          isTouch && isLandscape ? "mt-1" : "mt-4"
+        }`}
         style={{ width: displaySize.width, height: displaySize.height }}
       >
         <canvas
