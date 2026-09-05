@@ -29,6 +29,15 @@ type EnemyDef = {
 };
 type SpikeDef = { x: number; y: number; w: number; h: number };
 type FallingPlatformDef = { x: number; y: number; w: number; h: number };
+type BossDef = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  arenaMinX: number; // ボスが移動できる左端
+  arenaMaxX: number; // ボスが移動できる右端(右端はボスの右辺がここを超えない)
+  maxHp: number;
+};
 
 // 実行時に使う型(クリア済み・生存フラグつき)
 type Coin = CoinDef & { collected: boolean };
@@ -37,12 +46,34 @@ type FallingPlatform = FallingPlatformDef & {
   state: "idle" | "shaking" | "fallen";
   timer: number;
 };
+type Boss = BossDef & {
+  hp: number;
+  vy: number;
+  dir: number;
+  onGround: boolean;
+  state: "active" | "vulnerable" | "hitstun" | "defeated";
+  cycleTimer: number;
+  jumpTimer: number;
+  hitstunTimer: number;
+};
+
+// ボスの残りHPに応じた行動パラメータ(HPが減るほど速く・隙が短くなる)
+function getBossTier(hp: number, maxHp: number) {
+  const ratio = hp / maxHp;
+  if (ratio > 0.66) {
+    return { speed: 2.0, cycleInterval: 260, vulnerableDuration: 100, jumpInterval: 200, jumpPower: -13 };
+  }
+  if (ratio > 0.33) {
+    return { speed: 2.6, cycleInterval: 200, vulnerableDuration: 90, jumpInterval: 150, jumpPower: -13.5 };
+  }
+  return { speed: 3.2, cycleInterval: 150, vulnerableDuration: 80, jumpInterval: 110, jumpPower: -14 };
+}
 
 // ==== ステージ定義 ====
 // 新しいステージを追加するときは、この配列に要素を1つ足すだけでOK。
 type Stage = {
   name: string;
-  theme: "day" | "cave";
+  theme: "day" | "cave" | "castle";
   startX: number;
   startY: number;
   platforms: Platform[];
@@ -50,6 +81,7 @@ type Stage = {
   fallingPlatforms: FallingPlatformDef[];
   coins: CoinDef[];
   enemies: EnemyDef[];
+  boss?: BossDef;
   goalX: number;
   goalY: number;
 };
@@ -139,7 +171,64 @@ const stages: Stage[] = [
     goalX: 3320,
     goalY: 380,
   },
-  // 今後ここに { name: "ステージ3", ... } のように追加していく
+  {
+    name: "ステージ3:業火の城",
+    theme: "castle",
+    startX: 50,
+    startY: 400,
+    platforms: [
+      { x: 0, y: 460, w: 250, h: 40 },
+      { x: 340, y: 460, w: 100, h: 40 },
+      { x: 520, y: 400, w: 80, h: 20 },
+      { x: 700, y: 460, w: 100, h: 40 },
+      { x: 1020, y: 380, w: 80, h: 20 },
+      { x: 1200, y: 460, w: 220, h: 40 },
+      { x: 1520, y: 410, w: 80, h: 20 },
+      { x: 1900, y: 410, w: 100, h: 40 },
+      { x: 2100, y: 460, w: 250, h: 40 },
+      // ボス部屋(広い床+足場2つ。ボスもここを飛び回る)
+      { x: 2450, y: 460, w: 900, h: 40 },
+      { x: 2600, y: 360, w: 150, h: 20 },
+      { x: 2950, y: 340, w: 150, h: 20 },
+    ],
+    spikes: [
+      { x: 1290, y: 440, w: 40, h: 20 }, // 幅広床の真ん中(左右に着地スペースあり)
+      { x: 2200, y: 440, w: 40, h: 20 }, // 幅広床の真ん中(左右に着地スペースあり)
+    ],
+    fallingPlatforms: [
+      { x: 850, y: 420, w: 90, h: 30 },
+      { x: 1700, y: 460, w: 90, h: 30 },
+    ],
+    coins: [
+      { x: 180, y: 410, r: 10 },
+      { x: 390, y: 420, r: 10 },
+      { x: 560, y: 350, r: 10 },
+      { x: 890, y: 380, r: 10 },
+      { x: 1060, y: 340, r: 10 },
+      { x: 1350, y: 400, r: 10 },
+      { x: 1745, y: 420, r: 10 },
+      { x: 1950, y: 360, r: 10 },
+      { x: 2250, y: 400, r: 10 },
+      { x: 2670, y: 320, r: 10 },
+      { x: 3020, y: 300, r: 10 },
+    ],
+    enemies: [
+      { x: 1210, y: 430, w: 30, h: 30, dir: 1, range: [1210, 1400], speed: 1.6 },
+      { x: 2110, y: 430, w: 30, h: 30, dir: 1, range: [2110, 2340], speed: 1.8 },
+    ],
+    boss: {
+      x: 2700,
+      y: 410,
+      w: 50,
+      h: 50,
+      arenaMinX: 2470,
+      arenaMaxX: 3300,
+      maxHp: 3,
+    },
+    goalX: 3230,
+    goalY: 380,
+  },
+  // 今後ここに { name: "ステージ4", ... } のように追加していく
 ];
 
 export default function Game() {
@@ -150,6 +239,7 @@ export default function Game() {
   const [status, setStatus] = useState<"playing" | "stagecleared" | "allcleared" | "gameover">("playing");
   const [coinCount, setCoinCount] = useState(0);
   const [defeatedCount, setDefeatedCount] = useState(0);
+  const [bossHp, setBossHp] = useState<number | null>(null);
   const [resetKey, setResetKey] = useState(0);
 
   const [layout, setLayout] = useState<"default" | "swapped">("default");
@@ -160,6 +250,11 @@ export default function Game() {
 
   const currentStage = stages[stageIndex];
   const isLastStage = stageIndex === stages.length - 1;
+
+  useEffect(() => {
+    const boss = stages[stageIndex].boss;
+    setBossHp(boss ? boss.maxHp : null);
+  }, [stageIndex, resetKey]);
 
   useEffect(() => {
     const mq = window.matchMedia("(pointer: coarse)");
@@ -258,6 +353,7 @@ export default function Game() {
 
     const stage = stages[stageIndex];
     const isCave = stage.theme === "cave";
+    const isCastle = stage.theme === "castle";
 
     const player = {
       x: stage.startX,
@@ -278,6 +374,19 @@ export default function Game() {
       timer: 0,
     }));
     const platforms = stage.platforms;
+    const boss: Boss | null = stage.boss
+      ? {
+          ...stage.boss,
+          hp: stage.boss.maxHp,
+          vy: 0,
+          dir: 1,
+          onGround: false,
+          state: "active",
+          cycleTimer: 0,
+          jumpTimer: 60,
+          hitstunTimer: 0,
+        }
+      : null;
     const GOAL_X = stage.goalX;
     const GOAL_Y = stage.goalY;
 
@@ -435,12 +544,99 @@ export default function Game() {
         }
       }
 
+      // ラスボス(弱点タイミング制:光っている間だけ踏んでダメージ、それ以外は触れると即アウト)
+      if (boss && boss.state !== "defeated") {
+        const tier = getBossTier(boss.hp, boss.maxHp);
+
+        boss.x += boss.dir * tier.speed;
+        if (boss.x < boss.arenaMinX) {
+          boss.x = boss.arenaMinX;
+          boss.dir = 1;
+        }
+        if (boss.x + boss.w > boss.arenaMaxX) {
+          boss.x = boss.arenaMaxX - boss.w;
+          boss.dir = -1;
+        }
+
+        const bossPrevBottom = boss.y + boss.h;
+        boss.vy += GRAVITY;
+        boss.y += boss.vy;
+        boss.onGround = false;
+        for (const p of platforms) {
+          if (
+            checkAABB(boss.x, boss.y, boss.w, boss.h, p.x, p.y, p.w, p.h)
+          ) {
+            if (boss.vy > 0 && bossPrevBottom - boss.vy <= p.y + 5) {
+              boss.y = p.y - boss.h;
+              boss.vy = 0;
+              boss.onGround = true;
+            }
+          }
+        }
+
+        if (boss.onGround) {
+          boss.jumpTimer -= 1;
+          if (boss.jumpTimer <= 0) {
+            boss.vy = tier.jumpPower;
+            boss.onGround = false;
+            boss.jumpTimer = tier.jumpInterval;
+          }
+        }
+
+        if (boss.state === "hitstun") {
+          boss.hitstunTimer -= 1;
+          if (boss.hitstunTimer <= 0) {
+            boss.state = "active";
+            boss.cycleTimer = 0;
+          }
+        } else {
+          boss.cycleTimer += 1;
+          if (boss.state === "active" && boss.cycleTimer >= tier.cycleInterval) {
+            boss.state = "vulnerable";
+            boss.cycleTimer = 0;
+          } else if (
+            boss.state === "vulnerable" &&
+            boss.cycleTimer >= tier.vulnerableDuration
+          ) {
+            boss.state = "active";
+            boss.cycleTimer = 0;
+          }
+        }
+
+        if (
+          checkAABB(player.x, player.y, player.w, player.h, boss.x, boss.y, boss.w, boss.h)
+        ) {
+          if (boss.state === "vulnerable") {
+            const wasAbove = prevBottom <= boss.y + 14;
+            if (player.vy > 0 && wasAbove) {
+              boss.hp -= 1;
+              setBossHp(boss.hp);
+              player.vy = STOMP_BOUNCE;
+              if (boss.hp <= 0) {
+                boss.state = "defeated";
+              } else {
+                boss.state = "hitstun";
+                boss.hitstunTimer = 60;
+              }
+            }
+            // 光っている間の接触(踏みつけ以外)はノーダメージ
+          } else if (boss.state === "active") {
+            currentStatus = "gameover";
+            setStatus("gameover");
+          }
+          // hitstun中(被弾直後の隙)は無敵
+        }
+      }
+
       if (
         checkAABB(player.x, player.y, player.w, player.h, GOAL_X, GOAL_Y, 30, 80)
       ) {
-        const lastStage = stageIndex === stages.length - 1;
-        currentStatus = lastStage ? "allcleared" : "stagecleared";
-        setStatus(currentStatus);
+        const bossCleared = !boss || boss.state === "defeated";
+        if (bossCleared) {
+          const lastStage = stageIndex === stages.length - 1;
+          currentStatus = lastStage ? "allcleared" : "stagecleared";
+          setStatus(currentStatus);
+        }
       }
 
       cameraX = player.x - 200;
@@ -453,8 +649,8 @@ export default function Game() {
       ctx.fillStyle = "#334155";
       ctx.fillRect(0, 0, GAME_WIDTH, CANVAS_TOTAL_HEIGHT);
 
-      const skyTop = isCave ? "#0f172a" : "#87ceeb";
-      const skyBottom = isCave ? "#312e81" : "#e0f7fa";
+      const skyTop = isCave ? "#0f172a" : isCastle ? "#1c0a0a" : "#87ceeb";
+      const skyBottom = isCave ? "#312e81" : isCastle ? "#450a0a" : "#e0f7fa";
       const gradient = ctx.createLinearGradient(0, 0, 0, GAME_HEIGHT);
       gradient.addColorStop(0, skyTop);
       gradient.addColorStop(1, skyBottom);
@@ -479,8 +675,34 @@ export default function Game() {
         }
       }
 
-      const platformBody = isCave ? "#57534e" : "#8d6e63";
-      const platformTop = isCave ? "#22d3ee" : "#4caf50";
+      // お城テーマ用の背景装飾(石柱)
+      if (isCastle) {
+        const levelWidth = GOAL_X + 400;
+        ctx.fillStyle = "rgba(69, 10, 10, 0.6)";
+        for (let dx = 0; dx < levelWidth; dx += 300) {
+          ctx.fillRect(dx, 0, 30, 150);
+        }
+      }
+
+      // 溶岩(足場の隙間から見える。当たり判定はなく見た目のみ)
+      if (isCastle) {
+        const levelWidth = GOAL_X + 400;
+        const lavaGradient = ctx.createLinearGradient(0, GAME_HEIGHT - 40, 0, GAME_HEIGHT);
+        lavaGradient.addColorStop(0, "#f97316");
+        lavaGradient.addColorStop(1, "#7c2d12");
+        ctx.fillStyle = lavaGradient;
+        ctx.fillRect(0, GAME_HEIGHT - 40, levelWidth, 40);
+        ctx.fillStyle = "rgba(253, 224, 71, 0.6)";
+        for (let dx = 0; dx < levelWidth; dx += 60) {
+          const bob = ((frameCount + dx) % 40) / 40;
+          ctx.beginPath();
+          ctx.arc(dx + 20, GAME_HEIGHT - 10 - bob * 8, 3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      const platformBody = isCave ? "#57534e" : isCastle ? "#44403c" : "#8d6e63";
+      const platformTop = isCave ? "#22d3ee" : isCastle ? "#b91c1c" : "#4caf50";
 
       ctx.fillStyle = platformBody;
       for (const p of platforms) {
@@ -538,6 +760,26 @@ export default function Game() {
         ctx.fillStyle = "#ffffff";
         ctx.fillRect(en.x + 5, en.y + 8, 6, 6);
         ctx.fillRect(en.x + 19, en.y + 8, 6, 6);
+      }
+
+      if (boss && boss.state !== "defeated") {
+        const vulnerable = boss.state === "vulnerable";
+        const hitstun = boss.state === "hitstun";
+        let bodyColor = "#4c1d95"; // 通常(危険)は紫
+        if (vulnerable) bodyColor = "#fde047"; // 弱点露出中は黄色に発光
+        if (hitstun) bodyColor = frameCount % 6 < 3 ? "#ffffff" : "#4c1d95"; // 被弾直後は白く点滅
+
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(boss.x, boss.y, boss.w, boss.h);
+
+        ctx.fillStyle = vulnerable ? "#7c2d12" : "#f87171";
+        ctx.fillRect(boss.x + boss.w * 0.2, boss.y + boss.h * 0.25, 8, 8);
+        ctx.fillRect(boss.x + boss.w * 0.65, boss.y + boss.h * 0.25, 8, 8);
+
+        for (let i = 0; i < boss.maxHp; i++) {
+          ctx.fillStyle = i < boss.hp ? "#ef4444" : "rgba(255,255,255,0.25)";
+          ctx.fillRect(boss.x + i * 16, boss.y - 16, 12, 8);
+        }
       }
 
       ctx.fillStyle = "#616161";
@@ -684,12 +926,12 @@ export default function Game() {
       {isTouch ? (
         !isLandscape && (
           <p className="mt-1 text-center text-xs text-slate-300">
-            画面下のボタンで操作できます。敵は上から踏むと倒せます。トゲや崩れる床には注意しましょう。
+            画面下のボタンで操作できます。敵は上から踏むと倒せます。トゲや崩れる床には注意。ボスは黄色く光った時だけ踏めます。
           </p>
         )
       ) : (
         <p className="mt-1 text-sm text-slate-300">
-          矢印キー(または A / D)で移動、スペースキー(または W)でジャンプ。敵は上から踏むと倒せますが、トゲに触れると即ミス、崩れる床は長居禁物です。コインを集めて旗まで到達しよう。
+          矢印キー(または A / D)で移動、スペースキー(または W)でジャンプ。敵は上から踏むと倒せますが、トゲに触れると即ミス、崩れる床は長居禁物です。ボスは黄色く光っている間だけ踏んでダメージを与えられます(それ以外は触れると即ミス)。コインを集めて旗まで到達しよう。
         </p>
       )}
 
@@ -710,6 +952,9 @@ export default function Game() {
         <div className="absolute left-3 top-3 flex items-center gap-3 rounded-full bg-black/50 px-3 py-1 text-xs font-medium text-white sm:text-sm">
           <span>🪙 {coinCount} / {currentStage.coins.length}</span>
           <span>👾 {defeatedCount} / {currentStage.enemies.length}</span>
+          {currentStage.boss && (
+            <span>👑 {bossHp ?? currentStage.boss.maxHp} / {currentStage.boss.maxHp}</span>
+          )}
         </div>
 
         {status === "stagecleared" && (
